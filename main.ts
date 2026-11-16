@@ -724,6 +724,7 @@ async function main(): Promise<void> {
   await new Promise<void>((resolve) => server.listen(port, '0.0.0.0', resolve));
   log(`listening on ${port}`);
   let registered = false;
+  let workPollFailures = 0;
   for (let attempt = 0; attempt < REGISTER_RETRIES && !registered; attempt++) {
     try {
       const response = await fetch(`${ENV_URL}/register`, {
@@ -751,7 +752,12 @@ async function main(): Promise<void> {
       const response = await fetch(`${ENV_URL}/work`, { signal: AbortSignal.timeout(5000) });
       const reply: unknown = await response.json();
       if (isRecord(reply) && reply.done === true) break;
-    } catch { /* poll again */ }
+      workPollFailures = 0;
+    } catch {
+      // keep polling; surface a stall instead of spinning silently
+      workPollFailures += 1;
+      if (workPollFailures === 600) log('warn: /work unreachable for ~60 s, still polling');
+    }
     await new Promise((resolve) => setTimeout(resolve, POLL_MS));
   }
   log(`done: ${answered} requests served`);
